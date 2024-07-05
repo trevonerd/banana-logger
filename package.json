@@ -1,0 +1,56 @@
+{
+  "name": "banana-logger",
+  "version": "0.0.1",
+  "description": "Banana (logger): A fun and advanced TypeScript logger with formatting, callback, and timing capabilities",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/cjs/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build:cjs": "tsc -p tsconfig.json",
+    "build:esm": "tsc -p tsconfig.esm.json",
+    "build": "pnpm run clean && pnpm run build:cjs && pnpm run build:esm",
+    "clean": "rm -rf dist",
+    "examples": "node ./examples.js",
+    "lint": "eslint ./src",
+    "prepublishOnly": "pnpm run build",
+    "test": "jest"
+  },
+  "keywords": [
+    "logger",
+    "typescript",
+    "pino",
+    "logging"
+  ],
+  "author": "Marco Trevisani <marco.trevisani81@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "pino": "^9.2.0",
+    "pino-pretty": "^11.2.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.6.0",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.14.9",
+    "eslint": "^9.6.0",
+    "globals": "^15.8.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.5",
+    "typescript": "^5.5.3",
+    "typescript-eslint": "^7.15.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "packageManager": "pnpm@9.4.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trevonerd/tlog.git"
+  },
+  "bugs": {
+    "url": "https://github.com/trevonerd/tlog/issues"
+  },
+  "homepage": "https://github.com/trevonerd/tlog#readme"
+}
