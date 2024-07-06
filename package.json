@@ -51,10 +51,10 @@
   "packageManager": "bun@1.1.18",
   "repository": {
     "type": "git",
-    "url": "https://github.com/trevonerd/tlog.git"
+    "url": "git+https://github.com/trevonerd/banana.git"
   },
   "bugs": {
-    "url": "https://github.com/trevonerd/tlog/issues"
+    "url": "https://github.com/trevonerd/banana/issues"
   },
-  "homepage": "https://github.com/trevonerd/tlog#readme"
+  "homepage": "https://github.com/trevonerd/banana#readme"
 }
