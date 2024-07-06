@@ -1,3 +1,5 @@
+import { describe, expect, test, jest, beforeEach } from "bun:test";
+
 import Banana, { LogLevel } from '../index';
 
 describe('Banana', () => {

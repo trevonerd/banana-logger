@@ -1,3 +1,4 @@
+import path from 'path';
 import pino from 'pino';
 
 const LogLevel = {
@@ -8,11 +9,15 @@ const LogLevel = {
 } as const;
 
 export type LogLevel = typeof LogLevel[keyof typeof LogLevel];
-type LogOptions = { tag?: string; details?: string; metadata?: string };
+type LogOptions = { tag?: string; details?: string; metadata?: string; highlights?: HighlightConfig[] };
 type LogCallback = (level: LogLevel, message: string, options?: LogOptions) => void;
+type HighlightConfig = {
+    keyword: string;
+    style: string;
+};
 
 /**
- * Banana - An advanced logger with formatting, callback, and timing capabilities.
+ * Banana - An advanced logger with formatting, callback, timing, and highlighting capabilities.
  * 
  * @example
  * // Basic configuration
@@ -41,7 +46,23 @@ type LogCallback = (level: LogLevel, message: string, options?: LogOptions) => v
  * 
  * // Tabular data logging
  * banana.tab([{ name: 'Alice', age: 30 }, { name: 'Bob', age: 25 }]);
+ * 
+ * // Adding blank lines
+ * banana.addBlankLine();
+ * 
+ * // Highlighting keywords
+ * banana.configure({ highlights: [{ keyword: 'error', style: '31' }] });
+ * banana.info('This is an error message that should be highlighted');
+ * 
+ * // Configuring with global metadata
+ * banana.configure({ metadata: 'https://example.com' });
+ * banana.info('This log entry includes clickable metadata');
+ * 
+ * // Resetting global configurations
+ * banana.reset();
+ * banana.info('This log entry should not include any global configuration');
  */
+
 class Banana {
     private static instance: Banana;
     private logger: pino.Logger;
@@ -49,16 +70,18 @@ class Banana {
     private globalTag = '';
     private globalDetails = '';
     private globalMetadata = '';
+    private globalHighlights: HighlightConfig[] = [];
     private timers: Record<string, number> = {};
     private groupStack: string[] = [];
 
     private constructor() {
+        const level = this.getLogLevelFromEnv();
         this.logger = pino({
-            level: process.env.PINO_LOG_LEVEL || 'info',
+            level: level,
             transport: {
-                target: 'pino-pretty',
+                target: path.join(__dirname, 'config', 'pino-pretty-transport.js'),
                 options: {
-                    colorize: true
+                    colorize: true,
                 }
             }
         });
@@ -71,27 +94,65 @@ class Banana {
         return Banana.instance;
     }
 
+    private getLogLevelFromEnv(): string {
+        switch (process.env.NODE_ENV) {
+            case 'production':
+                return 'error';
+            case 'staging':
+                return 'warn';
+            case 'development':
+            default:
+                return 'debug';
+        }
+    }
+
+    private isValidUrl(url: string): boolean {
+        try {
+            const parsedUrl = new URL(url);
+            return ['http:', 'https:'].includes(parsedUrl.protocol) && !!parsedUrl.hostname;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    private applyHighlights(message: string, highlights: HighlightConfig[]): string {
+        let highlightedMessage = message;
+        highlights.forEach(({ keyword, style }) => {
+            const regex = new RegExp(`(${keyword})`, 'gi');
+            highlightedMessage = highlightedMessage.replace(regex, (match) => `\x1b[${style}m${match}\x1b[0m\x1b[39m`);
+        });
+        return highlightedMessage;
+    }
+
     private formatMessage(message: string, options?: LogOptions): string {
         const tag = options?.tag || this.globalTag;
         const details = options?.details || this.globalDetails;
         const metadata = options?.metadata || this.globalMetadata;
-        const groupPrefix = this.groupStack.length > 0 ? `${this.groupStack.join(' > ')} > ` : '';
-
-        const parts = [
+        const groupPrefix = this.groupStack.length > 0 ? `\x1b[34m${this.groupStack.join(' > ')}\x1b[0m > ` : '';
+    
+        const clickableMetadata = metadata ? this.isValidUrl(metadata) ? `(${metadata} 🔗)` : `[${metadata}]` : '';
+    
+        let formattedMessage = [
             groupPrefix,
             tag ? `[${tag}]` : '',
             details ? `[${details}]` : '',
-            metadata ? `[${metadata}]` : '',
+            clickableMetadata,
             message,
-        ].filter(Boolean);
-
-        return parts.join(' ');
+        ].filter(Boolean).join(' ');
+    
+        const highlights = options?.highlights || this.globalHighlights || [];
+        if (highlights.length > 0) {
+            formattedMessage = this.applyHighlights(formattedMessage, highlights);
+        }
+    
+        return formattedMessage;
     }
+    
 
     public addBlankLine(): void {
         this.logger.info('');
     }
-    
+
     public groupStart(label: string): void {
         this.addBlankLine();
         this.groupStack.push(label);
@@ -142,16 +203,18 @@ class Banana {
         this.logCallback = callback;
     }
 
-    public configure(cfg: { tag?: string; details?: string; metadata?: string }): void {
+    public configure(cfg: { tag?: string; details?: string; metadata?: string; highlights?: HighlightConfig[] }): void {
         this.globalTag = cfg.tag || this.globalTag;
         this.globalDetails = cfg.details || this.globalDetails;
         this.globalMetadata = cfg.metadata || this.globalMetadata;
+        this.globalHighlights = cfg.highlights || this.globalHighlights;
     }
 
     public reset(): void {
         this.globalTag = '';
         this.globalDetails = '';
         this.globalMetadata = '';
+        this.globalHighlights = [];
     }
 
     public debug(message: string, options?: LogOptions): void {
