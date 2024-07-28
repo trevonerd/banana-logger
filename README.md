@@ -157,4 +157,4 @@ This project is licensed under the MIT License.
 
 ---
 
-Made with ❤️ by [TrevoNerd](https://github.com/trevonerd) and a touch of 🍌.
+Made with ❤️ by [trevonerd](https://github.com/trevonerd) and a touch of 🍌.
