@@ -4,10 +4,10 @@
   <img src="./banana-logo.webp" alt="Banana Logger" width="300"/>
 </p>
 
-Banana (Logger) is a fun and advanced TypeScript logger with formatting, callback, timing, and highlighting capabilities. Inspired by the simplicity of logging but with a twist of humor, Banana Logger ensures your logging experience is both efficient and enjoyable.
+Banana (Logger) is a fun and advanced TypeScript logger with formatting, callback, timing, and highlighting capabilities. Every log message includes at least one banana and caller file and line for easier debugging. Inspired by the simplicity of logging but with a twist of humor, Banana Logger ensures your logging experience is both efficient and enjoyable.
 
 ## Features
-- **Formatted Logging**: Customizable log messages with tags, details, metadata, and highlights.
+- **Formatted Logging**: Customizable log messages with tags, details, metadata, highlights, and bananas.
 - **Callbacks**: Define custom log handlers to extend functionality.
 - **Timing**: Measure and log the duration of operations.
 - **Group Logging**: Organize logs into groups for better readability.

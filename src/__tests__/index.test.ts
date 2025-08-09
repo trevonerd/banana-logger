@@ -15,46 +15,58 @@ describe('Banana', () => {
         test('should log debug message', () => {
             const loggerSpy = jest.spyOn(banana['logger'], 'debug').mockImplementation();
             banana.debug('Debug message');
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('Debug message'));
+            const call = loggerSpy.mock.calls[0][0];
+            expect(call).toContain('Debug message');
+            expect(call).toContain('🍌');
             loggerSpy.mockRestore();
         });
 
         test('should log log message', () => {
             const loggerSpy = jest.spyOn(banana['logger'], 'info').mockImplementation();
             banana.log('Info message');
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('Info message'));
+            const call = loggerSpy.mock.calls[0][0];
+            expect(call).toContain('Info message');
+            expect(call).toContain('🍌');
             loggerSpy.mockRestore();
         });
 
-        test('should log info message', () => {
+        test('should log info message with caller info', () => {
             const loggerSpy = jest.spyOn(banana['logger'], 'info').mockImplementation();
             banana.info('Info message');
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('Info message'));
+            const call = loggerSpy.mock.calls[0][0];
+            expect(call).toContain('Info message');
+            expect(call).toContain('🍌');
+            expect(call).toMatch(/index\.test\.ts:\d+/);
             loggerSpy.mockRestore();
         });
 
         test('should log warn message', () => {
             const loggerSpy = jest.spyOn(banana['logger'], 'warn').mockImplementation();
             banana.warn('Warn message');
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('Warn message'));
+            const call = loggerSpy.mock.calls[0][0];
+            expect(call).toContain('Warn message');
+            expect(call).toContain('🍌');
             loggerSpy.mockRestore();
         });
 
         test('should log error message', () => {
             const loggerSpy = jest.spyOn(banana['logger'], 'error').mockImplementation();
             banana.error('Error message');
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('Error message'));
+            const call = loggerSpy.mock.calls[0][0];
+            expect(call).toContain('Error message');
+            expect(call).toContain('🍌');
             loggerSpy.mockRestore();
         });
 
         test('should log invalid log level error', () => {
             const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-            banana['logWithErrorHandling']('invalid' as LogLevel, 'Test invalid log level');
+            // @ts-expect-error accessing private method for testing
+            banana['log']('invalid' as LogLevel, 'Test invalid log level');
             expect(consoleSpy).toHaveBeenCalledWith('Invalid log level: invalid');
             consoleSpy.mockRestore();
         });
 
-        test('should handle log error in logWithErrorHandling', () => {
+        test('should handle log error in log method', () => {
             const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
             const loggerSpy = jest.spyOn(banana['logger'], 'info').mockImplementation(() => { throw new Error('Test Error'); });
             banana.info('Test log error handling');
@@ -202,54 +214,63 @@ describe('Banana', () => {
         test('should format message with tag, details, and metadata', () => {
             const message = 'Test message';
             const options = { tag: 'TAG', details: 'DETAILS', metadata: 'METADATA' };
-            const expectedOutput = '[TAG] [DETAILS] [METADATA] Test message';
-
             const formattedMessage = banana['formatMessage'](message, options);
-            expect(formattedMessage).toBe(expectedOutput);
+            expect(formattedMessage).toContain('[TAG]');
+            expect(formattedMessage).toContain('[DETAILS]');
+            expect(formattedMessage).toContain('[METADATA]');
+            expect(formattedMessage).toContain('🍌');
+            expect(formattedMessage).toContain('Test message');
         });
 
         test('should format message without tag', () => {
             const message = 'Test message';
             const options = { details: 'DETAILS', metadata: 'METADATA' };
-            const expectedOutput = '[DETAILS] [METADATA] Test message';
-
             const formattedMessage = banana['formatMessage'](message, options);
-            expect(formattedMessage).toBe(expectedOutput);
+            expect(formattedMessage).not.toContain('[TAG]');
+            expect(formattedMessage).toContain('[DETAILS]');
+            expect(formattedMessage).toContain('[METADATA]');
+            expect(formattedMessage).toContain('🍌');
+            expect(formattedMessage).toContain('Test message');
         });
 
         test('should format message without details', () => {
             const message = 'Test message';
             const options = { tag: 'TAG', metadata: 'METADATA' };
-            const expectedOutput = '[TAG] [METADATA] Test message';
-
             const formattedMessage = banana['formatMessage'](message, options);
-            expect(formattedMessage).toBe(expectedOutput);
+            expect(formattedMessage).toContain('[TAG]');
+            expect(formattedMessage).not.toContain('[DETAILS]');
+            expect(formattedMessage).toContain('[METADATA]');
+            expect(formattedMessage).toContain('🍌');
+            expect(formattedMessage).toContain('Test message');
         });
 
         test('should format message without metadata', () => {
             const message = 'Test message';
             const options = { tag: 'TAG', details: 'DETAILS' };
-            const expectedOutput = '[TAG] [DETAILS] Test message';
-
             const formattedMessage = banana['formatMessage'](message, options);
-            expect(formattedMessage).toBe(expectedOutput);
+            expect(formattedMessage).toContain('[TAG]');
+            expect(formattedMessage).toContain('[DETAILS]');
+            expect(formattedMessage).not.toContain('[METADATA]');
+            expect(formattedMessage).toContain('🍌');
+            expect(formattedMessage).toContain('Test message');
         });
 
         test('should format message without tag, details, and metadata', () => {
             const message = 'Test message';
-            const expectedOutput = 'Test message';
-
             const formattedMessage = banana['formatMessage'](message);
-            expect(formattedMessage).toBe(expectedOutput);
+            expect(formattedMessage).toContain('Test message');
+            expect(formattedMessage).toContain('🍌');
         });
 
         test('should log with global options', () => {
             banana.configure({ tag: 'GLOBAL', details: 'global details', metadata: 'global metadata' });
             const loggerSpy = jest.spyOn(banana['logger'], 'info').mockImplementation();
             banana.info('Test global options');
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('[GLOBAL]'));
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('[global details]'));
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('[global metadata]'));
+            const call = loggerSpy.mock.calls[0][0];
+            expect(call).toContain('[GLOBAL]');
+            expect(call).toContain('[global details]');
+            expect(call).toContain('[global metadata]');
+            expect(call).toContain('🍌');
             loggerSpy.mockRestore();
         });
     });
@@ -258,77 +279,79 @@ describe('Banana', () => {
         test('should configure global tag', () => {
             banana.configure({ tag: 'GLOBAL_TAG' });
             const message = 'Test message';
-            const expectedOutput = '[GLOBAL_TAG] Test message';
-
             const formattedMessage = banana['formatMessage'](message);
-            expect(formattedMessage).toBe(expectedOutput);
+            expect(formattedMessage).toContain('[GLOBAL_TAG]');
+            expect(formattedMessage).toContain('🍌');
         });
 
         test('should configure global details', () => {
             banana.configure({ details: 'GLOBAL_DETAILS' });
             const message = 'Test message';
-            const expectedOutput = '[GLOBAL_DETAILS] Test message';
-
             const formattedMessage = banana['formatMessage'](message);
-            expect(formattedMessage).toBe(expectedOutput);
+            expect(formattedMessage).toContain('[GLOBAL_DETAILS]');
+            expect(formattedMessage).toContain('🍌');
         });
 
         test('should configure global metadata', () => {
             banana.configure({ metadata: 'GLOBAL_METADATA' });
             const message = 'Test message';
-            const expectedOutput = '[GLOBAL_METADATA] Test message';
-
             const formattedMessage = banana['formatMessage'](message);
-            expect(formattedMessage).toBe(expectedOutput);
+            expect(formattedMessage).toContain('[GLOBAL_METADATA]');
+            expect(formattedMessage).toContain('🍌');
         });
 
         test('should configure all global options', () => {
             banana.configure({ tag: 'GLOBAL_TAG', details: 'GLOBAL_DETAILS', metadata: 'GLOBAL_METADATA' });
             const message = 'Test message';
-            const expectedOutput = '[GLOBAL_TAG] [GLOBAL_DETAILS] [GLOBAL_METADATA] Test message';
-
             const formattedMessage = banana['formatMessage'](message);
-            expect(formattedMessage).toBe(expectedOutput);
+            expect(formattedMessage).toContain('[GLOBAL_TAG]');
+            expect(formattedMessage).toContain('[GLOBAL_DETAILS]');
+            expect(formattedMessage).toContain('[GLOBAL_METADATA]');
+            expect(formattedMessage).toContain('🍌');
         });
 
         test('should override global tag with options', () => {
             banana.configure({ tag: 'GLOBAL_TAG' });
             const message = 'Test message';
             const options = { tag: 'LOCAL_TAG' };
-            const expectedOutput = '[LOCAL_TAG] Test message';
-
             const formattedMessage = banana['formatMessage'](message, options);
-            expect(formattedMessage).toBe(expectedOutput);
+            expect(formattedMessage).toContain('[LOCAL_TAG]');
+            expect(formattedMessage).not.toContain('[GLOBAL_TAG]');
+            expect(formattedMessage).toContain('🍌');
         });
 
         test('should override global details with options', () => {
             banana.configure({ details: 'GLOBAL_DETAILS' });
             const message = 'Test message';
             const options = { details: 'LOCAL_DETAILS' };
-            const expectedOutput = '[LOCAL_DETAILS] Test message';
-
             const formattedMessage = banana['formatMessage'](message, options);
-            expect(formattedMessage).toBe(expectedOutput);
+            expect(formattedMessage).toContain('[LOCAL_DETAILS]');
+            expect(formattedMessage).not.toContain('[GLOBAL_DETAILS]');
+            expect(formattedMessage).toContain('🍌');
         });
 
         test('should override global metadata with options', () => {
             banana.configure({ metadata: 'GLOBAL_METADATA' });
             const message = 'Test message';
             const options = { metadata: 'LOCAL_METADATA' };
-            const expectedOutput = '[LOCAL_METADATA] Test message';
-
             const formattedMessage = banana['formatMessage'](message, options);
-            expect(formattedMessage).toBe(expectedOutput);
+            expect(formattedMessage).toContain('[LOCAL_METADATA]');
+            expect(formattedMessage).not.toContain('[GLOBAL_METADATA]');
+            expect(formattedMessage).toContain('🍌');
         });
 
         test('should override all global options with local options', () => {
             banana.configure({ tag: 'GLOBAL_TAG', details: 'GLOBAL_DETAILS', metadata: 'GLOBAL_METADATA' });
             const message = 'Test message';
             const options = { tag: 'LOCAL_TAG', details: 'LOCAL_DETAILS', metadata: 'LOCAL_METADATA' };
-            const expectedOutput = '[LOCAL_TAG] [LOCAL_DETAILS] [LOCAL_METADATA] Test message';
-
             const formattedMessage = banana['formatMessage'](message, options);
-            expect(formattedMessage).toBe(expectedOutput);
+            expect(formattedMessage).toContain('[LOCAL_TAG]');
+            expect(formattedMessage).toContain('[LOCAL_DETAILS]');
+            expect(formattedMessage).toContain('[LOCAL_METADATA]');
+            expect(formattedMessage).not.toContain('[GLOBAL_TAG]');
+            expect(formattedMessage).not.toContain('[GLOBAL_DETAILS]');
+            expect(formattedMessage).not.toContain('[GLOBAL_METADATA]');
+            expect(formattedMessage).toContain('🍌');
         });
     });
 

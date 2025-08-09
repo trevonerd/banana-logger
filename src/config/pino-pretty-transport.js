@@ -1,4 +1,3 @@
-/* eslint-disable no-undef */
 import PinoPretty from 'pino-pretty';
 
 const emojiLevels = {
