@@ -1,19 +1,28 @@
 {
   "name": "banana-logger",
-  "version": "0.0.1",
-  "description": "Banana (logger): A fun and advanced TypeScript logger with formatting, callback, and timing capabilities",
+  "version": "1.0.0",
+  "description": "Banana Logger 🍌 — A hybrid client/server TypeScript logger with formatting, callbacks, timing, child loggers, and banana emojis.",
   "main": "./dist/cjs/index.js",
   "module": "./dist/index.js",
-  "types": "./dist/cjs/index.d.ts",
+  "types": "./dist/index.d.ts",
   "type": "module",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
+    }
+  },
   "scripts": {
-    "build:bun": "bun build ./src/index.ts --outdir=dist -e pino* --format esm --sourcemap=linked --minify",
-    "build:ci": "node ./bun.config.js",
-    "build:ts": "tsc --project tsconfig.json --pretty ",
+    "build:bun": "bun build ./src/index.ts --outdir=dist --format esm --sourcemap=linked --minify --external pino --external pino-pretty",
+    "build:ts": "tsc --project tsconfig.json --pretty",
     "build": "bun run clean && bun run build:bun && bun run build:ts",
     "clean": "rm -rf dist",
-    "clean:modules": "rm -fr node_modules",
-    "clean:deep": "bun run clean && bun run clean:modules && bun install && bun run build:bun",
     "examples": "bun ./examples.ts",
     "lint": "eslint ./src",
     "prepublishOnly": "bun run build",
@@ -24,7 +33,13 @@
     "logger",
     "typescript",
     "pino",
-    "logging"
+    "logging",
+    "banana",
+    "emoji",
+    "hybrid",
+    "browser",
+    "server",
+    "isomorphic"
   ],
   "author": "Marco Trevisani <marco.trevisani81@gmail.com>",
   "license": "MIT",
@@ -36,9 +51,7 @@
     "@eslint/js": "^9.6.0",
     "@types/bun": "^1.1.6",
     "@types/node": "^20.14.10",
-    "esbuild": "^0.23.0",
     "eslint": "^9.6.0",
-    "glob": "10.4.3",
     "globals": "^15.8.0",
     "typescript": "^5.5.3",
     "typescript-eslint": "^7.15.0"

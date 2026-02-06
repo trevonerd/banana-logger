@@ -1,158 +1,199 @@
-# Banana (Logger) 🍌
+# Banana Logger 🍌
 
 <p align="center">
   <img src="./banana-logo.webp" alt="Banana Logger" width="300"/>
 </p>
 
-Banana (Logger) is a fun and advanced TypeScript logger with formatting, callback, timing, and highlighting capabilities. Inspired by the simplicity of logging but with a twist of humor, Banana Logger ensures your logging experience is both efficient and enjoyable.
+A hybrid client/server TypeScript logger that adds banana emojis to your logs and happiness to your day.
+
+Works everywhere — Node.js, Bun, Deno, Cloudflare Workers, and the browser — with zero configuration.
 
 ## Features
-- **Formatted Logging**: Customizable log messages with tags, details, metadata, and highlights.
-- **Callbacks**: Define custom log handlers to extend functionality.
-- **Timing**: Measure and log the duration of operations.
-- **Group Logging**: Organize logs into groups for better readability.
-- **Tabular Data Logging**: Easily log data in table format.
-- **Highlighting Keywords**: Highlight specific keywords in log messages for better visibility.
-- **Environment-Specific Logging**: Automatically adjust logging levels based on environment (development, staging, production).
+
+- **Hybrid** — Auto-detects server (pino) vs. browser (console) and picks the right transport
+- **Fast** — Level checks happen *before* message formatting; disabled levels cost near-zero
+- **Typed** — Full TypeScript with strict types and exported interfaces
+- **Formatted** — Tags, details, metadata (clickable URLs), and ANSI keyword highlights
+- **Structured Data** — Attach `Record<string, unknown>` to any log entry for JSON transports
+- **Child Loggers** — `banana.child('DB')` gives you a scoped logger that inherits config
+- **Timers** — `time()` / `timeEnd()` / `timePromise()` for built-in performance measurement
+- **Groups** — Nested `groupStart()` / `groupEnd()` for visual log hierarchy
+- **Callbacks** — Ship every log to Sentry, Datadog, or your own telemetry with `setLogCallback()`
+- **Tabular Data** — `tab()` renders arrays/objects via `console.table`
+- **Environment-Aware** — Log level auto-adjusts based on `NODE_ENV`
 
 ## Installation
 
 ```bash
 npm install banana-logger
+# or
+bun add banana-logger
 ```
 
-## Usage
-
-### Basic Configuration
+## Quick Start
 
 ```typescript
-import Banana from 'banana-logger';
+import banana from 'banana-logger';
 
-// Basic configuration
-Banana.configure({ tag: 'APP' });
-
-// Simple logging
-Banana.info('Application started');
+banana.info('Hello world!');
+// 🍌 INFO [2026-02-06 12:00:00.000] Hello world!
 ```
 
-### Logging with Options
+## Configuration
 
 ```typescript
-Banana.warn('Warning!', { details: 'Low memory', metadata: 'RAM: 80%' });
-```
+import banana from 'banana-logger';
 
-### Using Timer
-
-```typescript
-Banana.time('operation');
-// ... perform operation ...
-Banana.timeEnd('operation');
-```
-
-### Using Callback
-
-```typescript
-Banana.setLogCallback((level, message, options) => {
-    // Send log to external service
+banana.configure({
+  tag: 'APP',
+  details: 'v2.0.0',
+  level: 'info',           // 'debug' | 'info' | 'warn' | 'error' | 'silent'
+  metadata: 'https://example.com',
+  highlights: [{ keyword: 'error', style: '31' }],  // ANSI red
+  transport: 'server',     // force 'server' | 'browser' (auto-detected by default)
+  json: false,             // true = raw JSON lines (server only)
 });
 ```
 
-### Grouped Logs
+## Logging Levels
+
+| Level     | Emoji | When to use                             |
+|-----------|-------|-----------------------------------------|
+| `debug`   | 🐒    | Verbose development output              |
+| `info`    | 🍌    | Normal operational messages              |
+| `warn`    | ⚠️     | Something unexpected but recoverable    |
+| `error`   | 🚨    | Something broke                         |
+| `silent`  | —     | Suppress all output                     |
+
+Auto-detected from `NODE_ENV`:
+- `production` → `error`
+- `staging` → `warn`
+- anything else → `debug`
+
+## Per-Call Options
 
 ```typescript
-Banana.groupStart('Initialization');
-Banana.debug('Loading modules...');
-Banana.groupEnd();
+banana.warn('Disk full', {
+  tag: 'DISK',
+  details: '/dev/sda1',
+  metadata: 'https://status.example.com',
+});
+// ⚠️ WARN [DISK] [/dev/sda1] (https://status.example.com 🔗) Disk full
 ```
 
-### Tabular Data Logging
+## Structured Data
 
 ```typescript
-Banana.tab([{ name: 'Alice', age: 30 }, { name: 'Bob', age: 25 }]);
+banana.info('Request handled', undefined, {
+  method: 'GET',
+  path: '/api/users',
+  status: 200,
+  durationMs: 12,
+});
 ```
 
-### Adding Blank Lines
+## Timers
 
 ```typescript
-Banana.addBlankLine();
-Banana.info('This message is after a blank line');
+banana.time('db-query');
+const rows = await db.query('SELECT ...');
+banana.timeEnd('db-query');
+// 🍌 INFO db-query: 42.17ms
+
+// Or wrap a promise:
+const users = await banana.timePromise('fetch-users', () => api.getUsers());
 ```
 
-### Highlighting Keywords
+## Grouped Logs
 
 ```typescript
-Banana.configure({ highlights: [{ keyword: 'error', style: '31' }] });
-Banana.info('This is an error message that should be highlighted');
+banana.groupStart('Authentication');
+banana.info('Checking credentials');
+banana.warn('Rate limit approaching');
+banana.groupEnd();
 ```
 
-### Configuring with Global Metadata
+## Child Loggers
 
 ```typescript
-Banana.configure({ metadata: 'https://example.com' });
-Banana.info('This log entry includes clickable metadata');
+const dbLog = banana.child('DB');
+dbLog.info('Pool ready');         // 🍌 INFO [DB] Pool ready
+dbLog.warn('Slow query', undefined, { query: 'SELECT *', ms: 3200 });
 ```
 
-### Resetting Global Configurations
+## Log Callbacks
 
 ```typescript
-Banana.reset();
-Banana.info('This log entry should not include any global configuration');
+banana.setLogCallback((level, message, options) => {
+  sentry.addBreadcrumb({ level, message });
+});
 ```
 
-## API
+## Independent Instances
 
-### `configure(options: { tag?: string; details?: string; metadata?: string; highlights?: HighlightConfig[] })`
-Configure global options for all logs.
+```typescript
+import { Banana } from 'banana-logger';
 
-### `setLogCallback(callback: (level: LogLevel, message: string, options?: LogOptions) => void)`
-Set a callback function for all log messages.
+const workerLog = Banana.create({ tag: 'WORKER', level: 'warn' });
+workerLog.warn('Retrying job #3');
+```
 
-### `debug(message: string, options?: LogOptions)`
-Log a debug message.
+## Tabular Data
 
-### `info(message: string, options?: LogOptions)`
-Log an info message.
+```typescript
+banana.tab([
+  { name: 'Alice', age: 30 },
+  { name: 'Bob', age: 25 },
+]);
+```
 
-### `warn(message: string, options?: LogOptions)`
-Log a warning message.
+## API Reference
 
-### `error(message: string, options?: LogOptions)`
-Log an error message.
+### Default Export
 
-### `time(label: string)`
-Start a timer with the specified label.
+| Method | Description |
+|--------|-------------|
+| `debug(message, options?, data?)` | Log at debug level |
+| `info(message, options?, data?)` | Log at info level |
+| `log(message, options?, data?)` | Alias for `info` |
+| `warn(message, options?, data?)` | Log at warn level |
+| `error(message, options?, data?)` | Log at error level |
+| `configure(config)` | Set global configuration |
+| `reset()` | Clear all state (config, timers, groups, callbacks) |
+| `setLogCallback(callback)` | Set or clear log callback |
+| `time(label)` | Start a named timer |
+| `timeEnd(label)` | End timer and log duration |
+| `timePromise(label, fn)` | Measure async function/promise |
+| `groupStart(label)` | Start a named log group |
+| `groupEnd()` | End the current log group |
+| `tab(data)` | Display data via `console.table` |
+| `addBlankLine()` | Emit an empty line |
+| `child(tag)` | Create a child logger with fixed tag |
+| `flush()` | Flush buffered output |
 
-### `timeEnd(label: string)`
-End a timer and log the elapsed time.
+### Named Exports
 
-### `timePromise<T>(label: string, fn: (() => Promise<T>) | Promise<T>): Promise<T>`
-Measure the execution time of a function or promise.
+| Export | Description |
+|--------|-------------|
+| `Banana` | The class — use `Banana.create()` or `Banana.getInstance()` |
+| `formatMessage()` | Pure formatting function |
+| `applyHighlights()` | Apply ANSI highlights to a string |
+| `isValidUrl()` | Check if a string is a valid HTTP(S) URL |
+| `isLevelEnabled()` | Check if a level meets a threshold |
+| `levelFromEnv()` | Infer log level from `NODE_ENV` |
+| `LOG_LEVELS` | `['debug', 'info', 'warn', 'error']` |
+| `createBrowserTransport()` | Create the console-based transport |
 
-### `groupStart(label: string)`
-Start a new log group.
+### Types
 
-### `groupEnd()`
-End the current log group.
-
-### `tab(data: Array<unknown> | object)`
-Display data in a tabular format.
-
-### `addBlankLine()`
-Add a blank line to the logs.
-
-### `applyHighlights(message: string, highlights: HighlightConfig[]): string`
-Apply highlights to specific keywords in the log message.
-
-### `isValidUrl(url: string): boolean`
-Check if a given string is a valid URL.
-
-### `reset()`
-Reset global configurations to their default state.
+`BananaConfig`, `LogLevel`, `LogOptions`, `LogCallback`, `LogData`, `HighlightRule`, `Transport`
 
 ## Contributing
+
 Contributions are welcome! Please submit a pull request or open an issue on GitHub.
 
 ## License
+
 This project is licensed under the MIT License.
 
 ---

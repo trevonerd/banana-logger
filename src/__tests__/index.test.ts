@@ -1,336 +1,612 @@
-import { describe, expect, test, jest, beforeEach } from "bun:test";
+import { describe, expect, test, jest, beforeEach } from 'bun:test';
+import {
+  Banana,
+  formatMessage,
+  applyHighlights,
+  isValidUrl,
+  isLevelEnabled,
+  levelFromEnv,
+  LOG_LEVELS,
+  createBrowserTransport,
+} from '../index';
+import type { LogLevel, LogOptions, Transport } from '../types';
 
-import Banana, { LogLevel } from '../index';
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Create a spy transport that records every call. */
+function spyTransport(): Transport & { calls: Array<{ level: LogLevel; message: string; data?: Record<string, unknown> }> } {
+  const calls: Array<{ level: LogLevel; message: string; data?: Record<string, unknown> }> = [];
+  return {
+    calls,
+    log(level: LogLevel, message: string, data?: Record<string, unknown>) {
+      calls.push({ level, message, data });
+    },
+  };
+}
+
+/** Inject a custom transport into a Banana instance (test-only). */
+function injectTransport(banana: Banana, transport: Transport): void {
+  // Access private field for testing purposes.
+  (banana as unknown as { transport: Transport }).transport = transport;
+}
+
+// ---------------------------------------------------------------------------
+// Formatter (pure functions)
+// ---------------------------------------------------------------------------
+
+describe('formatter', () => {
+  describe('isValidUrl', () => {
+    test('accepts http urls', () => {
+      expect(isValidUrl('http://example.com')).toBe(true);
+    });
+
+    test('accepts https urls', () => {
+      expect(isValidUrl('https://example.com/path?q=1')).toBe(true);
+    });
+
+    test('rejects ftp urls', () => {
+      expect(isValidUrl('ftp://files.example.com')).toBe(false);
+    });
+
+    test('rejects plain strings', () => {
+      expect(isValidUrl('not-a-url')).toBe(false);
+    });
+
+    test('rejects empty strings', () => {
+      expect(isValidUrl('')).toBe(false);
+    });
+  });
+
+  describe('applyHighlights', () => {
+    test('wraps matching keywords with ANSI codes', () => {
+      const result = applyHighlights('an error occurred', [{ keyword: 'error', style: '31' }]);
+      expect(result).toContain('\x1b[31m');
+      expect(result).toContain('error');
+      expect(result).toContain('\x1b[0m');
+    });
+
+    test('is case-insensitive', () => {
+      const result = applyHighlights('ERROR happened', [{ keyword: 'error', style: '31' }]);
+      expect(result).toContain('\x1b[31m');
+    });
+
+    test('handles multiple highlight rules', () => {
+      const result = applyHighlights('error and warning', [
+        { keyword: 'error', style: '31' },
+        { keyword: 'warning', style: '33' },
+      ]);
+      expect(result).toContain('\x1b[31m');
+      expect(result).toContain('\x1b[33m');
+    });
+
+    test('returns original message when no rules match', () => {
+      const result = applyHighlights('all good', [{ keyword: 'error', style: '31' }]);
+      expect(result).toBe('all good');
+    });
+
+    test('escapes special regex characters in keywords', () => {
+      const result = applyHighlights('price is $100.00', [{ keyword: '$100.00', style: '32' }]);
+      expect(result).toContain('\x1b[32m');
+    });
+  });
+
+  describe('formatMessage', () => {
+    test('returns plain message when no options or globals', () => {
+      expect(formatMessage('hello', undefined, '', '', '', [], [])).toBe('hello');
+    });
+
+    test('prepends tag in brackets', () => {
+      expect(formatMessage('msg', { tag: 'API' }, '', '', '', [], [])).toBe('[API] msg');
+    });
+
+    test('prepends details', () => {
+      expect(formatMessage('msg', { details: 'v2' }, '', '', '', [], [])).toBe('[v2] msg');
+    });
+
+    test('prepends metadata in brackets when not a url', () => {
+      expect(formatMessage('msg', { metadata: 'extra' }, '', '', '', [], [])).toBe('[extra] msg');
+    });
+
+    test('renders metadata as clickable link when it is a url', () => {
+      const result = formatMessage('msg', { metadata: 'https://x.com' }, '', '', '', [], []);
+      expect(result).toContain('(https://x.com 🔗)');
+    });
+
+    test('combines tag + details + metadata + message', () => {
+      const result = formatMessage('hi', { tag: 'T', details: 'D', metadata: 'M' }, '', '', '', [], []);
+      expect(result).toBe('[T] [D] [M] hi');
+    });
+
+    test('uses global defaults when per-call options are absent', () => {
+      const result = formatMessage('msg', undefined, 'GTAG', 'GDET', 'GMETA', [], []);
+      expect(result).toBe('[GTAG] [GDET] [GMETA] msg');
+    });
+
+    test('per-call options override globals', () => {
+      const result = formatMessage('msg', { tag: 'LOCAL' }, 'GLOBAL', '', '', [], []);
+      expect(result).toBe('[LOCAL] msg');
+    });
+
+    test('includes group prefix when groupStack is non-empty', () => {
+      const result = formatMessage('msg', undefined, '', '', '', [], ['G1', 'G2']);
+      expect(result).toContain('G1 > G2');
+      expect(result).toContain('msg');
+    });
+
+    test('applies highlight rules', () => {
+      const result = formatMessage('an error', undefined, '', '', '', [{ keyword: 'error', style: '31' }], []);
+      expect(result).toContain('\x1b[31m');
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Levels
+// ---------------------------------------------------------------------------
+
+describe('levels', () => {
+  test('LOG_LEVELS contains the four actionable levels', () => {
+    expect(LOG_LEVELS).toEqual(['debug', 'info', 'warn', 'error']);
+  });
+
+  test('isLevelEnabled allows same level', () => {
+    expect(isLevelEnabled('info', 'info')).toBe(true);
+  });
+
+  test('isLevelEnabled allows higher level', () => {
+    expect(isLevelEnabled('error', 'info')).toBe(true);
+  });
+
+  test('isLevelEnabled rejects lower level', () => {
+    expect(isLevelEnabled('debug', 'info')).toBe(false);
+  });
+
+  test('isLevelEnabled silent blocks everything', () => {
+    expect(isLevelEnabled('error', 'silent')).toBe(false);
+  });
+
+  test('levelFromEnv returns debug by default', () => {
+    const original = process.env.NODE_ENV;
+    delete process.env.NODE_ENV;
+    expect(levelFromEnv()).toBe('debug');
+    process.env.NODE_ENV = original;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Browser transport
+// ---------------------------------------------------------------------------
+
+describe('createBrowserTransport', () => {
+  test('calls console.log for info level', () => {
+    const spy = jest.spyOn(console, 'log').mockImplementation();
+    const transport = createBrowserTransport();
+    transport.log('info', 'test message');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0]).toContain('🍌 INFO');
+    expect(spy.mock.calls[0][0]).toContain('test message');
+    spy.mockRestore();
+  });
+
+  test('calls console.error for error level', () => {
+    const spy = jest.spyOn(console, 'error').mockImplementation();
+    const transport = createBrowserTransport();
+    transport.log('error', 'bad thing');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0]).toContain('🚨 ERROR');
+    spy.mockRestore();
+  });
+
+  test('calls console.warn for warn level', () => {
+    const spy = jest.spyOn(console, 'warn').mockImplementation();
+    const transport = createBrowserTransport();
+    transport.log('warn', 'caution');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0]).toContain('⚠️  WARN');
+    spy.mockRestore();
+  });
+
+  test('calls console.debug for debug level', () => {
+    const spy = jest.spyOn(console, 'debug').mockImplementation();
+    const transport = createBrowserTransport();
+    transport.log('debug', 'verbose');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0]).toContain('🐒 DEBUG');
+    spy.mockRestore();
+  });
+
+  test('passes structured data as second argument', () => {
+    const spy = jest.spyOn(console, 'log').mockImplementation();
+    const transport = createBrowserTransport();
+    transport.log('info', 'with data', { userId: 42 });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][1]).toEqual({ userId: 42 });
+    spy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Banana Logger — Core
+// ---------------------------------------------------------------------------
 
 describe('Banana', () => {
-    let banana: typeof Banana;
+  let banana: Banana;
+  let transport: ReturnType<typeof spyTransport>;
 
-    beforeEach(() => {
-        banana = Banana;
-        jest.clearAllMocks();
-        banana.reset();
+  beforeEach(() => {
+    Banana.resetInstance();
+    banana = Banana.create({ level: 'debug' });
+    transport = spyTransport();
+    injectTransport(banana, transport);
+  });
+
+  // ---- Basic logging ----
+
+  describe('basic logging', () => {
+    test('debug emits at debug level', () => {
+      banana.debug('d');
+      expect(transport.calls).toHaveLength(1);
+      expect(transport.calls[0].level).toBe('debug');
+      expect(transport.calls[0].message).toContain('d');
     });
 
-    describe('Basic Logging', () => {
-        test('should log debug message', () => {
-            const loggerSpy = jest.spyOn(banana['logger'], 'debug').mockImplementation();
-            banana.debug('Debug message');
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('Debug message'));
-            loggerSpy.mockRestore();
-        });
-
-        test('should log log message', () => {
-            const loggerSpy = jest.spyOn(banana['logger'], 'info').mockImplementation();
-            banana.log('Info message');
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('Info message'));
-            loggerSpy.mockRestore();
-        });
-
-        test('should log info message', () => {
-            const loggerSpy = jest.spyOn(banana['logger'], 'info').mockImplementation();
-            banana.info('Info message');
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('Info message'));
-            loggerSpy.mockRestore();
-        });
-
-        test('should log warn message', () => {
-            const loggerSpy = jest.spyOn(banana['logger'], 'warn').mockImplementation();
-            banana.warn('Warn message');
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('Warn message'));
-            loggerSpy.mockRestore();
-        });
-
-        test('should log error message', () => {
-            const loggerSpy = jest.spyOn(banana['logger'], 'error').mockImplementation();
-            banana.error('Error message');
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('Error message'));
-            loggerSpy.mockRestore();
-        });
-
-        test('should log invalid log level error', () => {
-            const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-            banana['logWithErrorHandling']('invalid' as LogLevel, 'Test invalid log level');
-            expect(consoleSpy).toHaveBeenCalledWith('Invalid log level: invalid');
-            consoleSpy.mockRestore();
-        });
-
-        test('should handle log error in logWithErrorHandling', () => {
-            const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-            const loggerSpy = jest.spyOn(banana['logger'], 'info').mockImplementation(() => { throw new Error('Test Error'); });
-            banana.info('Test log error handling');
-            expect(consoleSpy).toHaveBeenCalledWith('Logging error:', expect.any(Error));
-            loggerSpy.mockRestore();
-            consoleSpy.mockRestore();
-        });
+    test('info emits at info level', () => {
+      banana.info('i');
+      expect(transport.calls[0].level).toBe('info');
     });
 
-    describe('Log Callbacks', () => {
-        test('should handle log callback', () => {
-            const callback = jest.fn();
-            banana.setLogCallback(callback);
-            banana.info('Info message with callback');
-            expect(callback).toHaveBeenCalledWith('info', expect.any(String), undefined);
-        });
+    test('log is an alias for info', () => {
+      banana.log('l');
+      expect(transport.calls[0].level).toBe('info');
     });
 
-    describe('Grouped Logging', () => {
-        test('should log group messages', () => {
-            const loggerSpy = jest.spyOn(banana['logger'], 'info').mockImplementation();
-            banana.groupStart('Group 1');
-            banana.info('Inside group');
-            banana.groupEnd();
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('----- START: Group 1'));
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('Inside group'));
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('----- END: Group 1'));
-            loggerSpy.mockRestore();
-        });
-
-        test('should handle group stack correctly', () => {
-            const loggerSpy = jest.spyOn(banana['logger'], 'info').mockImplementation();
-            banana.groupStart('Group 1');
-            banana.groupStart('Group 2');
-            banana.info('Inside nested group');
-            banana.groupEnd();
-            banana.groupEnd();
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('----- START: Group 1'));
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('----- START: Group 2'));
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('Inside nested group'));
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('----- END: Group 2'));
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('----- END: Group 1'));
-            loggerSpy.mockRestore();
-        });
-
-        test('should handle empty group stack on groupEnd', () => {
-            const loggerSpy = jest.spyOn(banana['logger'], 'warn').mockImplementation();
-            banana.groupEnd();
-            expect(loggerSpy).toHaveBeenCalledWith('Attempted to end a group, but no active group exists.');
-            loggerSpy.mockRestore();
-        });
+    test('warn emits at warn level', () => {
+      banana.warn('w');
+      expect(transport.calls[0].level).toBe('warn');
     });
 
-    describe('Tabular Data Logging', () => {
-        test('should log tabular data', () => {
-            const consoleSpy = jest.spyOn(console, 'table').mockImplementation();
-            const data = [{ name: 'Alice', age: 30 }, { name: 'Bob', age: 25 }];
-            banana.tab(data);
-            expect(consoleSpy).toHaveBeenCalledWith(data);
-            consoleSpy.mockRestore();
-        });
-
-        test('should handle empty data in tab', () => {
-            const consoleSpy = jest.spyOn(console, 'table').mockImplementation();
-            banana.tab([]);
-            expect(consoleSpy).toHaveBeenCalledWith([]);
-            consoleSpy.mockRestore();
-        });
-
-        test('should log message when data is not an array or object in tab', () => {
-            const loggerSpy = jest.spyOn(banana['logger'], 'info').mockImplementation();
-            // @ts-expect-error Testing invalid input
-            banana.tab('string data');
-            expect(loggerSpy).toHaveBeenCalledWith('Provided data is not an array or object.');
-            loggerSpy.mockRestore();
-        });
+    test('error emits at error level', () => {
+      banana.error('e');
+      expect(transport.calls[0].level).toBe('error');
     });
 
-    describe('Timing Functions', () => {
-        test('should start and end timer', () => {
-            const loggerSpy = jest.spyOn(banana['logger'], 'info').mockImplementation();
-            banana.time('testTimer');
-            banana.timeEnd('testTimer');
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('testTimer:'));
-            loggerSpy.mockRestore();
-        });
+    test('passes structured data through', () => {
+      banana.info('msg', undefined, { key: 'value' });
+      expect(transport.calls[0].data).toEqual({ key: 'value' });
+    });
+  });
 
-        test('should handle non-existing timer end', () => {
-            const loggerSpy = jest.spyOn(banana['logger'], 'warn').mockImplementation();
-            banana.timeEnd('nonExistingTimer');
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('Timer \'nonExistingTimer\' does not exist'));
-            loggerSpy.mockRestore();
-        });
+  // ---- Level filtering ----
 
-        test('should handle timePromise correctly', async () => {
-            const loggerSpy = jest.spyOn(banana['logger'], 'info').mockImplementation();
-            const testPromise = () => new Promise((resolve) => setTimeout(resolve, 100));
-            await banana.timePromise('testPromise', testPromise);
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('testPromise:'));
-            loggerSpy.mockRestore();
-        });
-
-        test('should handle both function and promise in timePromise', async () => {
-            const loggerSpy = jest.spyOn(banana['logger'], 'info').mockImplementation();
-
-            // Test with a function
-            const testFunction = async () => {
-                return 'function result';
-            };
-            const functionResult = await banana.timePromise('testFunction', testFunction);
-            expect(functionResult).toBe('function result');
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('testFunction:'));
-
-            // Test with a promise
-            const testPromise = new Promise<string>((resolve) => setTimeout(() => resolve('promise result'), 100));
-            const promiseResult = await banana.timePromise('testPromise', testPromise);
-            expect(promiseResult).toBe('promise result');
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('testPromise:'));
-
-            loggerSpy.mockRestore();
-        });
-
-        test('should handle error in timePromise', async () => {
-            const loggerSpy = jest.spyOn(banana['logger'], 'info').mockImplementation();
-            const errorFunction = async () => {
-                return new Promise<void>((_, reject) => setTimeout(() => reject(new Error('Test Error')), 100));
-            };
-
-            await expect(banana.timePromise('errorFunction', errorFunction)).rejects.toThrow('Test Error');
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('errorFunction:'));
-            loggerSpy.mockRestore();
-        });
+  describe('level filtering', () => {
+    test('suppresses messages below configured level', () => {
+      banana.configure({ level: 'warn' });
+      banana.debug('no');
+      banana.info('no');
+      banana.warn('yes');
+      banana.error('yes');
+      expect(transport.calls).toHaveLength(2);
     });
 
-    describe('Message Formatting', () => {
-        test('should format message with options', () => {
-            const loggerSpy = jest.spyOn(banana['logger'], 'info').mockImplementation();
-            banana.info('Formatted message', { tag: 'TEST', details: 'details', metadata: 'metadata' });
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('[TEST]'));
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('[details]'));
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('[metadata]'));
-            loggerSpy.mockRestore();
-        });
+    test('silent level suppresses everything', () => {
+      banana.configure({ level: 'silent' });
+      banana.error('nope');
+      expect(transport.calls).toHaveLength(0);
+    });
+  });
 
-        test('should format message with tag, details, and metadata', () => {
-            const message = 'Test message';
-            const options = { tag: 'TAG', details: 'DETAILS', metadata: 'METADATA' };
-            const expectedOutput = '[TAG] [DETAILS] [METADATA] Test message';
+  // ---- Configuration ----
 
-            const formattedMessage = banana['formatMessage'](message, options);
-            expect(formattedMessage).toBe(expectedOutput);
-        });
-
-        test('should format message without tag', () => {
-            const message = 'Test message';
-            const options = { details: 'DETAILS', metadata: 'METADATA' };
-            const expectedOutput = '[DETAILS] [METADATA] Test message';
-
-            const formattedMessage = banana['formatMessage'](message, options);
-            expect(formattedMessage).toBe(expectedOutput);
-        });
-
-        test('should format message without details', () => {
-            const message = 'Test message';
-            const options = { tag: 'TAG', metadata: 'METADATA' };
-            const expectedOutput = '[TAG] [METADATA] Test message';
-
-            const formattedMessage = banana['formatMessage'](message, options);
-            expect(formattedMessage).toBe(expectedOutput);
-        });
-
-        test('should format message without metadata', () => {
-            const message = 'Test message';
-            const options = { tag: 'TAG', details: 'DETAILS' };
-            const expectedOutput = '[TAG] [DETAILS] Test message';
-
-            const formattedMessage = banana['formatMessage'](message, options);
-            expect(formattedMessage).toBe(expectedOutput);
-        });
-
-        test('should format message without tag, details, and metadata', () => {
-            const message = 'Test message';
-            const expectedOutput = 'Test message';
-
-            const formattedMessage = banana['formatMessage'](message);
-            expect(formattedMessage).toBe(expectedOutput);
-        });
-
-        test('should log with global options', () => {
-            banana.configure({ tag: 'GLOBAL', details: 'global details', metadata: 'global metadata' });
-            const loggerSpy = jest.spyOn(banana['logger'], 'info').mockImplementation();
-            banana.info('Test global options');
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('[GLOBAL]'));
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('[global details]'));
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('[global metadata]'));
-            loggerSpy.mockRestore();
-        });
+  describe('configure', () => {
+    test('sets global tag', () => {
+      banana.configure({ tag: 'APP' });
+      banana.info('msg');
+      expect(transport.calls[0].message).toContain('[APP]');
     });
 
-    describe('Configuration', () => {
-        test('should configure global tag', () => {
-            banana.configure({ tag: 'GLOBAL_TAG' });
-            const message = 'Test message';
-            const expectedOutput = '[GLOBAL_TAG] Test message';
-
-            const formattedMessage = banana['formatMessage'](message);
-            expect(formattedMessage).toBe(expectedOutput);
-        });
-
-        test('should configure global details', () => {
-            banana.configure({ details: 'GLOBAL_DETAILS' });
-            const message = 'Test message';
-            const expectedOutput = '[GLOBAL_DETAILS] Test message';
-
-            const formattedMessage = banana['formatMessage'](message);
-            expect(formattedMessage).toBe(expectedOutput);
-        });
-
-        test('should configure global metadata', () => {
-            banana.configure({ metadata: 'GLOBAL_METADATA' });
-            const message = 'Test message';
-            const expectedOutput = '[GLOBAL_METADATA] Test message';
-
-            const formattedMessage = banana['formatMessage'](message);
-            expect(formattedMessage).toBe(expectedOutput);
-        });
-
-        test('should configure all global options', () => {
-            banana.configure({ tag: 'GLOBAL_TAG', details: 'GLOBAL_DETAILS', metadata: 'GLOBAL_METADATA' });
-            const message = 'Test message';
-            const expectedOutput = '[GLOBAL_TAG] [GLOBAL_DETAILS] [GLOBAL_METADATA] Test message';
-
-            const formattedMessage = banana['formatMessage'](message);
-            expect(formattedMessage).toBe(expectedOutput);
-        });
-
-        test('should override global tag with options', () => {
-            banana.configure({ tag: 'GLOBAL_TAG' });
-            const message = 'Test message';
-            const options = { tag: 'LOCAL_TAG' };
-            const expectedOutput = '[LOCAL_TAG] Test message';
-
-            const formattedMessage = banana['formatMessage'](message, options);
-            expect(formattedMessage).toBe(expectedOutput);
-        });
-
-        test('should override global details with options', () => {
-            banana.configure({ details: 'GLOBAL_DETAILS' });
-            const message = 'Test message';
-            const options = { details: 'LOCAL_DETAILS' };
-            const expectedOutput = '[LOCAL_DETAILS] Test message';
-
-            const formattedMessage = banana['formatMessage'](message, options);
-            expect(formattedMessage).toBe(expectedOutput);
-        });
-
-        test('should override global metadata with options', () => {
-            banana.configure({ metadata: 'GLOBAL_METADATA' });
-            const message = 'Test message';
-            const options = { metadata: 'LOCAL_METADATA' };
-            const expectedOutput = '[LOCAL_METADATA] Test message';
-
-            const formattedMessage = banana['formatMessage'](message, options);
-            expect(formattedMessage).toBe(expectedOutput);
-        });
-
-        test('should override all global options with local options', () => {
-            banana.configure({ tag: 'GLOBAL_TAG', details: 'GLOBAL_DETAILS', metadata: 'GLOBAL_METADATA' });
-            const message = 'Test message';
-            const options = { tag: 'LOCAL_TAG', details: 'LOCAL_DETAILS', metadata: 'LOCAL_METADATA' };
-            const expectedOutput = '[LOCAL_TAG] [LOCAL_DETAILS] [LOCAL_METADATA] Test message';
-
-            const formattedMessage = banana['formatMessage'](message, options);
-            expect(formattedMessage).toBe(expectedOutput);
-        });
+    test('sets global details', () => {
+      banana.configure({ details: 'v2.0' });
+      banana.info('msg');
+      expect(transport.calls[0].message).toContain('[v2.0]');
     });
 
+    test('sets global metadata', () => {
+      banana.configure({ metadata: 'ctx' });
+      banana.info('msg');
+      expect(transport.calls[0].message).toContain('[ctx]');
+    });
 
+    test('per-call tag overrides global', () => {
+      banana.configure({ tag: 'GLOBAL' });
+      banana.info('msg', { tag: 'LOCAL' });
+      expect(transport.calls[0].message).toContain('[LOCAL]');
+      expect(transport.calls[0].message).not.toContain('[GLOBAL]');
+    });
+
+    test('per-call details overrides global', () => {
+      banana.configure({ details: 'GLOBAL' });
+      banana.info('msg', { details: 'LOCAL' });
+      expect(transport.calls[0].message).toContain('[LOCAL]');
+      expect(transport.calls[0].message).not.toContain('[GLOBAL]');
+    });
+
+    test('per-call metadata overrides global', () => {
+      banana.configure({ metadata: 'GLOBAL' });
+      banana.info('msg', { metadata: 'LOCAL' });
+      expect(transport.calls[0].message).toContain('[LOCAL]');
+      expect(transport.calls[0].message).not.toContain('[GLOBAL]');
+    });
+
+    test('all global options combined', () => {
+      banana.configure({ tag: 'T', details: 'D', metadata: 'M' });
+      banana.info('msg');
+      expect(transport.calls[0].message).toBe('[T] [D] [M] msg');
+    });
+
+    test('highlights are applied', () => {
+      banana.configure({ highlights: [{ keyword: 'fail', style: '31' }] });
+      banana.info('test fail case');
+      expect(transport.calls[0].message).toContain('\x1b[31m');
+    });
+  });
+
+  // ---- Reset ----
+
+  describe('reset', () => {
+    test('clears global tag, details, metadata, highlights', () => {
+      banana.configure({ tag: 'X', details: 'Y', metadata: 'Z', highlights: [{ keyword: 'a', style: '1' }] });
+      banana.reset();
+      banana.info('clean');
+      expect(transport.calls[0].message).toBe('clean');
+    });
+
+    test('clears active timers', () => {
+      banana.time('timer1');
+      banana.reset();
+      banana.timeEnd('timer1');
+      // Should produce a warning since timer was cleared.
+      expect(transport.calls[0].message).toContain("does not exist");
+    });
+
+    test('clears group stack', () => {
+      banana.groupStart('G');
+      transport.calls.length = 0; // clear groupStart output
+      banana.reset();
+      banana.info('msg');
+      // Should not have group prefix.
+      expect(transport.calls[0].message).toBe('msg');
+    });
+
+    test('clears log callback', () => {
+      const cb = jest.fn();
+      banana.setLogCallback(cb);
+      banana.reset();
+      banana.info('msg');
+      expect(cb).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---- Callbacks ----
+
+  describe('log callback', () => {
+    test('invokes callback on each log', () => {
+      const cb = jest.fn();
+      banana.setLogCallback(cb);
+      banana.info('hello');
+      expect(cb).toHaveBeenCalledTimes(1);
+      expect(cb.mock.calls[0][0]).toBe('info');
+      expect(cb.mock.calls[0][1]).toContain('hello');
+    });
+
+    test('passes options to callback', () => {
+      const cb = jest.fn();
+      banana.setLogCallback(cb);
+      const opts: LogOptions = { tag: 'T' };
+      banana.warn('w', opts);
+      expect(cb.mock.calls[0][2]).toBe(opts);
+    });
+
+    test('can be cleared with null', () => {
+      const cb = jest.fn();
+      banana.setLogCallback(cb);
+      banana.setLogCallback(null);
+      banana.info('hi');
+      expect(cb).not.toHaveBeenCalled();
+    });
+  });
+
+  // ---- Timing ----
+
+  describe('timing', () => {
+    test('time + timeEnd logs duration', () => {
+      banana.time('op');
+      banana.timeEnd('op');
+      expect(transport.calls).toHaveLength(1);
+      expect(transport.calls[0].message).toMatch(/op: \d+\.\d+ms/);
+    });
+
+    test('timeEnd warns when timer does not exist', () => {
+      banana.timeEnd('missing');
+      expect(transport.calls[0].level).toBe('warn');
+      expect(transport.calls[0].message).toContain("'missing'");
+    });
+
+    test('timePromise with async function', async () => {
+      const result = await banana.timePromise('fn', async () => 'done');
+      expect(result).toBe('done');
+      expect(transport.calls[0].message).toMatch(/fn: \d+\.\d+ms/);
+    });
+
+    test('timePromise with promise directly', async () => {
+      const result = await banana.timePromise('p', Promise.resolve(42));
+      expect(result).toBe(42);
+      expect(transport.calls[0].message).toMatch(/p: \d+\.\d+ms/);
+    });
+
+    test('timePromise re-throws errors and still logs timing', async () => {
+      const failing = async () => {
+        throw new Error('boom');
+      };
+      await expect(banana.timePromise('err', failing)).rejects.toThrow('boom');
+      expect(transport.calls[0].message).toMatch(/err: \d+\.\d+ms/);
+    });
+  });
+
+  // ---- Grouping ----
+
+  describe('grouping', () => {
+    test('groupStart + groupEnd emit headers', () => {
+      banana.groupStart('G1');
+      banana.groupEnd();
+      const messages = transport.calls.map(c => c.message);
+      expect(messages.some(m => m.includes('START: G1'))).toBe(true);
+      expect(messages.some(m => m.includes('END: G1'))).toBe(true);
+    });
+
+    test('nested groups add group prefix to messages', () => {
+      banana.groupStart('Outer');
+      banana.groupStart('Inner');
+      banana.info('deep message');
+      banana.groupEnd();
+      banana.groupEnd();
+      const infoCall = transport.calls.find(c => c.message.includes('deep message'));
+      expect(infoCall?.message).toContain('Outer > Inner');
+    });
+
+    test('groupEnd with empty stack warns', () => {
+      banana.groupEnd();
+      expect(transport.calls[0].level).toBe('warn');
+      expect(transport.calls[0].message).toContain('no active group');
+    });
+  });
+
+  // ---- Tab ----
+
+  describe('tab', () => {
+    test('calls console.table with array data', () => {
+      const spy = jest.spyOn(console, 'table').mockImplementation();
+      const data = [{ a: 1 }, { a: 2 }];
+      banana.tab(data);
+      expect(spy).toHaveBeenCalledWith(data);
+      spy.mockRestore();
+    });
+
+    test('calls console.table with object data', () => {
+      const spy = jest.spyOn(console, 'table').mockImplementation();
+      const data = { x: 1, y: 2 };
+      banana.tab(data);
+      expect(spy).toHaveBeenCalledWith(data);
+      spy.mockRestore();
+    });
+
+    test('handles empty array', () => {
+      const spy = jest.spyOn(console, 'table').mockImplementation();
+      banana.tab([]);
+      expect(spy).toHaveBeenCalledWith([]);
+      spy.mockRestore();
+    });
+
+    test('rejects non-object data', () => {
+      // @ts-expect-error Testing invalid input type
+      banana.tab('string');
+      expect(transport.calls[0].message).toContain('not an array or object');
+    });
+
+    test('rejects null', () => {
+      // @ts-expect-error Testing null input
+      banana.tab(null);
+      expect(transport.calls[0].message).toContain('not an array or object');
+    });
+  });
+
+  // ---- addBlankLine ----
+
+  describe('addBlankLine', () => {
+    test('emits an empty info line', () => {
+      banana.addBlankLine();
+      expect(transport.calls).toHaveLength(1);
+      expect(transport.calls[0].message).toBe('');
+      expect(transport.calls[0].level).toBe('info');
+    });
+  });
+
+  // ---- Child loggers ----
+
+  describe('child', () => {
+    test('creates a child with a fixed tag', () => {
+      const child = banana.child('DB');
+      injectTransport(child, transport);
+      child.info('connected');
+      expect(transport.calls[0].message).toContain('[DB]');
+    });
+
+    test('child inherits parent level', () => {
+      banana.configure({ level: 'error' });
+      const child = banana.child('CHILD');
+      injectTransport(child, transport);
+      child.info('ignored');
+      child.error('shown');
+      expect(transport.calls).toHaveLength(1);
+      expect(transport.calls[0].level).toBe('error');
+    });
+
+    test('child inherits parent callback', () => {
+      const cb = jest.fn();
+      banana.setLogCallback(cb);
+      const child = banana.child('CHILD');
+      injectTransport(child, transport);
+      child.info('msg');
+      expect(cb).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ---- Singleton ----
+
+  describe('singleton', () => {
+    test('getInstance returns the same instance', () => {
+      const a = Banana.getInstance();
+      const b = Banana.getInstance();
+      expect(a).toBe(b);
+    });
+
+    test('resetInstance creates a fresh singleton', () => {
+      const a = Banana.getInstance();
+      Banana.resetInstance();
+      const b = Banana.getInstance();
+      expect(a).not.toBe(b);
+    });
+  });
+
+  // ---- Error resilience ----
+
+  describe('error resilience', () => {
+    test('does not throw when transport.log throws', () => {
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation();
+      const badTransport: Transport = {
+        log() { throw new Error('transport failed'); },
+      };
+      injectTransport(banana, badTransport);
+      expect(() => banana.info('should not throw')).not.toThrow();
+      expect(errorSpy).toHaveBeenCalled();
+      errorSpy.mockRestore();
+    });
+  });
+
+  // ---- Flush ----
+
+  describe('flush', () => {
+    test('calls transport.flush when available', () => {
+      const flushFn = jest.fn();
+      transport.flush = flushFn;
+      banana.flush();
+      expect(flushFn).toHaveBeenCalledTimes(1);
+    });
+
+    test('does not throw when transport has no flush', () => {
+      delete (transport as Partial<Transport>).flush;
+      expect(() => banana.flush()).not.toThrow();
+    });
+  });
 });
