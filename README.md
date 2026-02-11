@@ -15,6 +15,19 @@ Banana (Logger) is a fun and advanced TypeScript logger with formatting, callbac
 - **Highlighting Keywords**: Highlight specific keywords in log messages for better visibility.
 - **Environment-Specific Logging**: Automatically adjust logging levels based on environment (development, staging, production).
 
+## Compatibility
+
+| Runtime | Supported |
+|---------|-----------|
+| Node.js | ✅ |
+| Bun     | ✅ |
+| Browser | ✅ |
+| Deno    | ❌ Not tested |
+
+On the server (Node.js / Bun), Banana Logger uses [Pino](https://github.com/pinojs/pino) as its logging engine. In the browser, it uses native `console.*` methods with the same visual format (emoji, timestamp, level). Bundlers that support the `exports` field in `package.json` (webpack, Vite, esbuild, Rollup) will automatically select the browser entry point.
+
+> **Note:** In the browser, ANSI highlight colors are not applied — the text is returned as-is.
+
 ## Installation
 
 ```bash

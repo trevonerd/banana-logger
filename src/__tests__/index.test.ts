@@ -1,6 +1,6 @@
-import { describe, expect, test, jest, beforeEach } from "bun:test";
-
-import Banana, { LogLevel } from '../index';
+import { beforeEach, describe, expect, jest, test } from 'bun:test';
+import type { LogLevel } from '../core/types';
+import Banana from '../index';
 
 describe('Banana', () => {
     let banana: typeof Banana;
@@ -68,7 +68,9 @@ describe('Banana', () => {
 
         test('should handle log error in log method', () => {
             const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-            const loggerSpy = jest.spyOn(banana['logger'], 'info').mockImplementation(() => { throw new Error('Test Error'); });
+            const loggerSpy = jest.spyOn(banana['logger'], 'info').mockImplementation(() => {
+                throw new Error('Test Error');
+            });
             banana.info('Test log error handling');
             expect(consoleSpy).toHaveBeenCalledWith('Logging error:', expect.any(Error));
             loggerSpy.mockRestore();
@@ -123,7 +125,10 @@ describe('Banana', () => {
     describe('Tabular Data Logging', () => {
         test('should log tabular data', () => {
             const consoleSpy = jest.spyOn(console, 'table').mockImplementation();
-            const data = [{ name: 'Alice', age: 30 }, { name: 'Bob', age: 25 }];
+            const data = [
+                { name: 'Alice', age: 30 },
+                { name: 'Bob', age: 25 },
+            ];
             banana.tab(data);
             expect(consoleSpy).toHaveBeenCalledWith(data);
             consoleSpy.mockRestore();
@@ -157,7 +162,7 @@ describe('Banana', () => {
         test('should handle non-existing timer end', () => {
             const loggerSpy = jest.spyOn(banana['logger'], 'warn').mockImplementation();
             banana.timeEnd('nonExistingTimer');
-            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('Timer \'nonExistingTimer\' does not exist'));
+            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining("Timer 'nonExistingTimer' does not exist"));
             loggerSpy.mockRestore();
         });
 
@@ -354,6 +359,4 @@ describe('Banana', () => {
             expect(formattedMessage).toContain('🍌');
         });
     });
-
-
 });

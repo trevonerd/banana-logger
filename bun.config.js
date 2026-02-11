@@ -1,4 +1,4 @@
-const result = await Bun.build({
+const serverResult = await Bun.build({
   entrypoints: ['./src/index.ts'],
   outdir: './dist',
   format: "esm",
@@ -7,9 +7,24 @@ const result = await Bun.build({
   external: ["pino*"]
 });
 
-if (!result.success) {
-  console.error("Build failed");
-  for (const message of result.logs) {
+if (!serverResult.success) {
+  console.error("Server build failed");
+  for (const message of serverResult.logs) {
+    console.error(message);
+  }
+}
+
+const browserResult = await Bun.build({
+  entrypoints: ['./src/index.browser.ts'],
+  outdir: './dist',
+  format: "esm",
+  sourcemap: 'linked',
+  minify: true,
+});
+
+if (!browserResult.success) {
+  console.error("Browser build failed");
+  for (const message of browserResult.logs) {
     console.error(message);
   }
 }
