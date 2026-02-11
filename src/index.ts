@@ -137,18 +137,18 @@ class Banana {
     }
 
     private createLogMethod(level: LogLevel) {
-        return (message: string, options?: LogOptions) => this.log(level, message, options);
+        return (message: string, options?: LogOptions) => this.writeLog(level, message, options);
     }
 
-    private log(level: LogLevel, message: string, options?: LogOptions): void {
+    private writeLog(level: LogLevel, message: string, options?: LogOptions): void {
         try {
             const formatted = this.formatMessage(message, options);
-            const fn = (this.logger as Record<string, pino.LogFn>)[level];
+            const fn = (this.logger as unknown as Record<string, pino.LogFn>)[level];
             if (typeof fn !== 'function') {
                 console.error(`Invalid log level: ${level}`);
                 return;
             }
-            fn(formatted);
+            fn.call(this.logger, formatted);
             this.logCallback?.(level, formatted, options);
         } catch (error) {
             console.error('Logging error:', error);
