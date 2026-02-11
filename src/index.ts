@@ -89,11 +89,19 @@ class Banana {
     }
 
     private getCaller(): string | null {
-        const line = new Error().stack?.split('\n')[3];
-        if (!line) return null;
-        const match = line.match(/(?:at\s+.*\()?(.+):(\d+):\d+\)?$/);
-        if (!match) return null;
-        return `${path.basename(match[1])}:${match[2]}`;
+        const stack = new Error().stack?.split('\n').slice(1);
+        if (!stack || stack.length < 2) return null;
+        const extractFile = (line: string) =>
+            (line.match(/\((.+):\d+:\d+\)/) ?? line.match(/at\s+(.+):\d+:\d+/))?.[1] ?? null;
+        const selfFile = extractFile(stack[0]!);
+        if (!selfFile) return null;
+        for (const line of stack.slice(1)) {
+            const file = extractFile(line);
+            if (!file || file === selfFile) continue;
+            const lineNo = line.match(/(\d+):\d+\)?$/);
+            if (lineNo) return `${path.basename(file)}:${lineNo[1]}`;
+        }
+        return null;
     }
 
     private formatMessage(message: string, options?: LogOptions): string {

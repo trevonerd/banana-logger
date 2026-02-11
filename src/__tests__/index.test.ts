@@ -61,7 +61,7 @@ describe('Banana', () => {
         test('should log invalid log level error', () => {
             const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
             // @ts-expect-error accessing private method for testing
-            banana['log']('invalid' as LogLevel, 'Test invalid log level');
+            banana['writeLog']('invalid' as LogLevel, 'Test invalid log level');
             expect(consoleSpy).toHaveBeenCalledWith('Invalid log level: invalid');
             consoleSpy.mockRestore();
         });
@@ -140,7 +140,7 @@ describe('Banana', () => {
             const loggerSpy = jest.spyOn(banana['logger'], 'info').mockImplementation();
             // @ts-expect-error Testing invalid input
             banana.tab('string data');
-            expect(loggerSpy).toHaveBeenCalledWith('Provided data is not an array or object.');
+            expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('Provided data is not an array or object.'));
             loggerSpy.mockRestore();
         });
     });
