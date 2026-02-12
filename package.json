@@ -1,6 +1,6 @@
 {
   "name": "banana-logger",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Banana (logger): A fun and advanced TypeScript logger with formatting, callback, and timing capabilities",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
